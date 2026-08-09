@@ -1,4 +1,5 @@
-const STORAGE_KEY = "tripPlannerV03";
+const STORAGE_KEY = "firstNoteV04";
+const V03_KEY = "tripPlannerV03";
 const V02_KEY = "disneyPlannerV02";
 const V01_KEY = "disneyPlannerV01";
 
@@ -10,13 +11,15 @@ const state = {
   activeDay: "",
   schedule: [],
   checklist: [],
-  memos: []
+  memos: [],
+  memories: []
 };
 
 const $ = (id) => document.getElementById(id);
 
 function load() {
   const current = localStorage.getItem(STORAGE_KEY);
+  const v03 = localStorage.getItem(V03_KEY);
   const v02 = localStorage.getItem(V02_KEY);
   const v01 = localStorage.getItem(V01_KEY);
 
@@ -25,7 +28,7 @@ function load() {
     return;
   }
 
-  const legacyRaw = v02 || v01;
+  const legacyRaw = v03 || v02 || v01;
   if (!legacyRaw) return;
 
   const old = JSON.parse(legacyRaw);
@@ -128,8 +131,7 @@ function renderDayTabs() {
 
 function renderCountdown() {
   if (!state.startDate) {
-    $("countdownValue").textContent = "—";
-    $("countdownLabel").textContent = "日付を設定すると表示されます";
+    $("countdownValue").textContent = "あと — 日!";
     return;
   }
 
@@ -139,14 +141,11 @@ function renderCountdown() {
   const diff = Math.ceil((target - today) / 86400000);
 
   if (diff > 0) {
-    $("countdownValue").textContent = `${diff}`;
-    $("countdownLabel").textContent = "days to go";
+    $("countdownValue").textContent = `あと ${diff} 日!`;
   } else if (diff === 0) {
-    $("countdownValue").textContent = "TODAY";
-    $("countdownLabel").textContent = "いよいよ出発！";
+    $("countdownValue").textContent = "TODAY!";
   } else {
-    $("countdownValue").textContent = "✓";
-    $("countdownLabel").textContent = "また次の旅へ。";
+    $("countdownValue").textContent = "旅の思い出 ✓";
   }
 }
 
@@ -164,10 +163,10 @@ function renderSchedule() {
     const row = document.createElement("div");
     row.className = "timeline-item";
     row.innerHTML = `
-      <span class="timeline-time">${item.time || "--:--"}</span>
+      <span class="time">${item.time || "--:--"}</span>
       <span class="timeline-dot"></span>
       <span class="timeline-text">${escapeHtml(item.text)}</span>
-      <button class="icon-button" aria-label="予定を削除">DELETE</button>
+      <button class="delete" aria-label="予定を削除">DELETE</button>
     `;
     row.querySelector("button").addEventListener("click", () => {
       state.schedule = state.schedule.filter((x) => x.id !== item.id);
@@ -186,16 +185,16 @@ function renderChecklist() {
     const row = document.createElement("div");
     row.className = `check-item ${item.done ? "done" : ""}`;
     row.innerHTML = `
-      <button class="check-toggle" aria-label="チェック切替"></button>
+      <input class="check-toggle" type="checkbox" ${item.done ? "checked" : ""}>
       <span class="item-text">${escapeHtml(item.text)}</span>
-      <button class="icon-button" aria-label="項目を削除">DELETE</button>
+      <button class="delete" aria-label="項目を削除">DELETE</button>
     `;
-    row.querySelector(".check-toggle").addEventListener("click", () => {
+    row.querySelector(".check-toggle").addEventListener("change", () => {
       item.done = !item.done;
       save();
       renderChecklist();
     });
-    row.querySelector(".icon-button").addEventListener("click", () => {
+    row.querySelector(".delete").addEventListener("click", () => {
       state.checklist = state.checklist.filter((x) => x.id !== item.id);
       save();
       renderChecklist();
@@ -212,7 +211,7 @@ function renderProgress() {
   const percent = total ? Math.round((done / total) * 100) : 0;
   $("checkProgress").textContent = `${percent}%`;
   $("progressBar").style.width = `${percent}%`;
-  $("progressText").textContent = total ? `${done} / ${total} items ready` : "持ち物を登録しよう";
+  $("progressText").textContent = total ? `${done} / ${total} 完了` : "まず1つ追加してみよう";
 }
 
 function renderMemos() {
@@ -225,7 +224,7 @@ function renderMemos() {
     card.className = "memo-item";
     card.innerHTML = `
       <p>${escapeHtml(memo.text).replace(/\n/g, "<br>")}</p>
-      <button class="icon-button" aria-label="メモを削除">DELETE</button>
+      <button class="delete" aria-label="メモを削除">DELETE</button>
     `;
     card.querySelector("button").addEventListener("click", () => {
       state.memos = state.memos.filter((x) => x.id !== memo.id);
@@ -284,9 +283,40 @@ $("memoText").addEventListener("keydown", (e) => {
   }
 });
 
+
+function renderMemories() {
+  const board = $("memoryBoard");
+  board.innerHTML = "";
+  const items = state.memories || [];
+  $("memoryEmpty").style.display = items.length ? "none" : "block";
+  [...items].reverse().forEach((m) => {
+    const card = document.createElement("article");
+    card.className = "memory";
+    card.innerHTML = `${m.photo ? `<img src="${m.photo}" alt="旅の写真">` : ""}<div class="bubble"><h3>${escapeHtml(m.title)}</h3>${m.note ? `<p>${escapeHtml(m.note).replace(/\n/g,"<br>")}</p>` : ""}</div><time>${m.date}</time><button class="delete">DELETE</button>`;
+    card.querySelector("button").addEventListener("click",()=>{state.memories=state.memories.filter(x=>x.id!==m.id);save();renderMemories();});
+    board.appendChild(card);
+  });
+}
+
+$("addMemoryBtn").addEventListener("click", () => {
+  const title = $("memoryTitle").value.trim();
+  if (!title) return;
+  const file = $("memoryPhoto").files[0];
+  const finish = (photo="") => {
+    state.memories = state.memories || [];
+    state.memories.push({id:Date.now(), title, note:$("memoryNote").value.trim(), photo, date:new Date().toLocaleDateString("ja-JP")});
+    $("memoryTitle").value=""; $("memoryNote").value=""; $("memoryPhoto").value=""; save(); renderMemories();
+  };
+  if (!file) return finish();
+  const reader = new FileReader();
+  reader.onload = () => finish(reader.result);
+  reader.readAsDataURL(file);
+});
+
 $("resetBtn").addEventListener("click", () => {
   if (!confirm("保存した旅行プランをすべて消しますか？")) return;
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(V03_KEY);
   localStorage.removeItem(V02_KEY);
   localStorage.removeItem(V01_KEY);
   location.reload();
@@ -312,4 +342,5 @@ renderDayTabs();
 renderSchedule();
 renderChecklist();
 renderMemos();
+renderMemories();
 renderCountdown();
