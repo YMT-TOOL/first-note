@@ -29,3 +29,11 @@
 .memory time{font-family:'Courier New',monospace;letter-spacing:1px;text-align:right;color:#6e6258}
 .corkEmpty{margin:0;background:#b87943;color:#fffbe9;border:1px dashed #f1d4ad;padding:40px;text-align:center}
 @media(max-width:600px){.photo-placeholder img{min-height:190px}.corkFrame{padding:12px}.cork{min-height:460px}}
+\n/* v0.4.2 desktop photo-field hardening */
+.tripPhotoInput,#tripPhotoInput{display:none!important;position:absolute!important;width:0!important;height:0!important;opacity:0!important;pointer-events:none!important}
+.photo-placeholder{width:100%;min-width:0;aspect-ratio:4/5;min-height:0!important;overflow:hidden!important;isolation:isolate}
+.photo-placeholder>img{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;min-height:0!important;object-fit:cover!important;z-index:1}
+.photo-placeholder>.tripPhotoEmpty{position:absolute!important;inset:0!important;display:grid;place-content:center;text-align:center;z-index:2;font-size:20px!important;line-height:1.4;color:#254d60}
+.photo-placeholder>.tripPhotoEmpty b{font-size:34px;line-height:1;margin-top:10px}
+.photo-placeholder:after{z-index:3}
+@media(max-width:600px){.photo-placeholder{aspect-ratio:16/10;min-height:190px!important}}
