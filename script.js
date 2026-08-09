@@ -1,4 +1,5 @@
-const STORAGE_KEY = "firstNoteV04";
+const STORAGE_KEY = "firstNoteV041";
+const V04_KEY = "firstNoteV04";
 const V03_KEY = "tripPlannerV03";
 const V02_KEY = "disneyPlannerV02";
 const V01_KEY = "disneyPlannerV01";
@@ -12,13 +13,16 @@ const state = {
   schedule: [],
   checklist: [],
   memos: [],
-  memories: []
+  memories: [],
+  concept: "",
+  tripPhoto: ""
 };
 
 const $ = (id) => document.getElementById(id);
 
 function load() {
   const current = localStorage.getItem(STORAGE_KEY);
+  const v04 = localStorage.getItem(V04_KEY);
   const v03 = localStorage.getItem(V03_KEY);
   const v02 = localStorage.getItem(V02_KEY);
   const v01 = localStorage.getItem(V01_KEY);
@@ -28,7 +32,7 @@ function load() {
     return;
   }
 
-  const legacyRaw = v03 || v02 || v01;
+  const legacyRaw = v04 || v03 || v02 || v01;
   if (!legacyRaw) return;
 
   const old = JSON.parse(legacyRaw);
@@ -41,6 +45,10 @@ function load() {
     date: item.date || old.startDate || ""
   }));
   state.checklist = old.checklist || [];
+  state.destination = old.destination || "";
+  state.memories = old.memories || [];
+  state.concept = old.concept || "";
+  state.tripPhoto = old.tripPhoto || "";
   if (old.memo && String(old.memo).trim()) {
     state.memos = [{ id: Date.now(), text: String(old.memo).trim() }];
   }
@@ -56,6 +64,8 @@ function bindBasics() {
   $("destination").value = state.destination || "";
   $("startDate").value = state.startDate || "";
   $("endDate").value = state.endDate || "";
+  $("conceptText").value = state.concept || "";
+  renderTripPhoto();
 
   $("tripName").addEventListener("input", (e) => {
     state.tripName = e.target.value;
@@ -65,6 +75,23 @@ function bindBasics() {
   $("destination").addEventListener("input", (e) => {
     state.destination = e.target.value;
     save();
+  });
+
+  $("conceptText").addEventListener("input", (e) => {
+    state.concept = e.target.value;
+    save();
+  });
+
+  $("tripPhotoInput").addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      state.tripPhoto = await compressImage(file, 1400, 0.82);
+      save();
+      renderTripPhoto();
+    } catch (err) {
+      alert("写真を読み込めませんでした。別の写真で試してください。");
+    }
   });
 
   ["startDate", "endDate"].forEach((key) => {
@@ -284,6 +311,42 @@ $("memoText").addEventListener("keydown", (e) => {
 });
 
 
+function renderTripPhoto() {
+  const preview = $("tripPhotoPreview");
+  const empty = document.querySelector(".tripPhotoEmpty");
+  if (state.tripPhoto) {
+    preview.src = state.tripPhoto;
+    preview.style.display = "block";
+    empty.style.display = "none";
+  } else {
+    preview.removeAttribute("src");
+    preview.style.display = "none";
+    empty.style.display = "grid";
+  }
+}
+
+function compressImage(file, maxSide = 1400, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function renderMemories() {
   const board = $("memoryBoard");
   board.innerHTML = "";
@@ -308,14 +371,13 @@ $("addMemoryBtn").addEventListener("click", () => {
     $("memoryTitle").value=""; $("memoryNote").value=""; $("memoryPhoto").value=""; save(); renderMemories();
   };
   if (!file) return finish();
-  const reader = new FileReader();
-  reader.onload = () => finish(reader.result);
-  reader.readAsDataURL(file);
+  compressImage(file, 1200, 0.78).then(finish).catch(() => alert("写真を読み込めませんでした。"));
 });
 
 $("resetBtn").addEventListener("click", () => {
   if (!confirm("保存した旅行プランをすべて消しますか？")) return;
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(V04_KEY);
   localStorage.removeItem(V03_KEY);
   localStorage.removeItem(V02_KEY);
   localStorage.removeItem(V01_KEY);

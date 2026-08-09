@@ -1,19 +1,12 @@
-# First Note v0.4
+# First Note v0.4.1
 
-旅行は、出発する前から始まっている。
+旅行前から旅行中、旅行後までをひとつのノートに残すWebアプリ。
 
-## v0.4
-- First Noteブランドへ統一
-- アイボリー＋パステル＋紙/スクラップブック調のUI
-- DATE / 日程：出発日・帰宅日を明記
-- DESTINATION / 行き先：英日併記
-- CONCEPT / コンセプトへ変更
-- ScheduleのTIME / 時間は5分刻み
-- Memoの追加・削除
-- ALBUM / 旅の記録を追加
-  - ホームと同一ページから記録追加
-  - 写真・タイトル・一言を保存
-  - コルクボード風に蓄積
-- localStorage保存（v0.3データを可能な範囲で引継ぎ）
+## v0.4.1
+- YOUR TRIP PHOTO の画像選択・プレビュー・ブラウザ保存に対応
+- CONCEPT / コンセプトを自由編集・保存可能に変更
+- ALBUM / 旅の記録のコルクボード表現を強化
+- 写真をブラウザ保存しやすいよう自動圧縮
+- v0.4 の保存データを引き継ぎ
 
-GitHub Pagesでは index.html / style.css / script.js をリポジトリ直下に置いてください。
+GitHub Pagesでは `index.html`, `style.css`, `script.js` を同じ階層にアップロードしてください。
