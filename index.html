@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f1e8">
+  <title>Trip Planner v0.3</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Manrope:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="Trip Planner top">
+      <span class="brand-mark">TP</span>
+      <span>
+        <small>YMT / THE WORKSHOP</small>
+        <strong>Trip Planner</strong>
+      </span>
+    </a>
+    <div class="top-actions">
+      <span class="version">v0.3</span>
+      <button class="text-button" id="resetBtn">RESET</button>
+    </div>
+  </header>
+
+  <main id="top" class="page-shell">
+    <section class="hero-card">
+      <div class="hero-copy">
+        <p class="kicker">NEXT ADVENTURE</p>
+        <input id="tripName" class="hero-title-input" type="text" placeholder="次の旅行名">
+        <div class="hero-meta">
+          <div class="meta-item">
+            <span>DATE</span>
+            <div class="date-pair">
+              <input id="startDate" type="date" aria-label="Start date">
+              <span>—</span>
+              <input id="endDate" type="date" aria-label="End date">
+            </div>
+          </div>
+          <div class="meta-item">
+            <span>DESTINATION</span>
+            <input id="destination" class="meta-input" type="text" placeholder="東京 / 沖縄 / Paris ...">
+          </div>
+        </div>
+      </div>
+      <div class="hero-badge" aria-hidden="true">
+        <span class="spark spark-a">✦</span>
+        <span class="journey-mark">↗</span>
+        <span class="spark spark-b">✧</span>
+        <small>PLAN / GO / REMEMBER</small>
+      </div>
+    </section>
+
+    <section class="overview-grid">
+      <article class="mini-card countdown-card">
+        <span class="mini-label">COUNTDOWN</span>
+        <strong id="countdownValue">—</strong>
+        <p id="countdownLabel">日付を設定すると表示されます</p>
+      </article>
+      <article class="mini-card progress-card">
+        <div class="mini-card-head">
+          <span class="mini-label">READY</span>
+          <strong id="checkProgress">0%</strong>
+        </div>
+        <div class="progress-track"><span id="progressBar"></span></div>
+        <p id="progressText">持ち物を登録しよう</p>
+      </article>
+      <article class="mini-card mood-card">
+        <span class="mini-label">TRIP NOTE</span>
+        <p>Plan lightly.<br>Enjoy fully.</p>
+      </article>
+    </section>
+
+    <nav class="section-nav" aria-label="Planner sections">
+      <a href="#schedule">Schedule</a>
+      <a href="#checklist">Checklist</a>
+      <a href="#memo">Memo</a>
+    </nav>
+
+    <section id="schedule" class="content-card schedule-card">
+      <div class="section-head">
+        <div>
+          <span class="section-no">01</span>
+          <h2>Schedule</h2>
+          <p>1日の流れを、軽く決めておく。</p>
+        </div>
+        <div id="dayTabs" class="day-tabs"></div>
+      </div>
+
+      <div class="add-panel">
+        <div class="field compact-field">
+          <label for="scheduleTime">TIME</label>
+          <input id="scheduleTime" type="time">
+        </div>
+        <div class="field">
+          <label for="scheduleText">PLAN</label>
+          <input id="scheduleText" type="text" placeholder="空港到着 / ランチ / 観光 etc.">
+        </div>
+        <button id="addScheduleBtn" class="primary-button">ADD PLAN</button>
+      </div>
+
+      <div id="scheduleList" class="timeline"></div>
+      <div id="scheduleEmpty" class="empty-state">
+        <span>✦</span>
+        <p>まだ予定はありません。<br>最初のひとつだけ入れてみよう。</p>
+      </div>
+    </section>
+
+    <div class="two-column">
+      <section id="checklist" class="content-card">
+        <div class="section-head compact">
+          <div>
+            <span class="section-no">02</span>
+            <h2>Checklist</h2>
+            <p>忘れ物を減らして、当日は楽しむだけ。</p>
+          </div>
+        </div>
+
+        <div class="inline-add">
+          <input id="checkText" type="text" placeholder="モバイルバッテリー">
+          <button id="addCheckBtn" class="small-button">ADD</button>
+        </div>
+        <div id="checkList" class="check-list"></div>
+      </section>
+
+      <section id="memo" class="content-card memo-card">
+        <div class="section-head compact">
+          <div>
+            <span class="section-no">03</span>
+            <h2>Memo</h2>
+            <p>予約、食べたいもの、買いたいもの。</p>
+          </div>
+        </div>
+        <div class="memo-add">
+          <textarea id="memoText" placeholder="レストラン候補 / 予約番号 / お土産候補…"></textarea>
+          <button id="addMemoBtn" class="primary-button memo-add-button">ADD MEMO</button>
+        </div>
+        <div id="memoList" class="memo-list"></div>
+        <div id="memoEmpty" class="memo-empty">メモはまだありません。</div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="app-footer">
+    <span>Trip Planner / The Workshop</span>
+    <span>v0.3 — Your trip, your pace.</span>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
