@@ -136,7 +136,8 @@ async function syncAllLocalTrips() {
 
 function tripFromCloudRow(row) {
   const data = row.trip_data || {};
-  return { ...blankTrip(), ...data, id: data.id || `trip_${row.id}`, cloudId: row.id };
+  // クラウドの行IDは必ず一意。復元元の端末IDが重複していても別の旅として扱う。
+  return { ...blankTrip(), ...data, id: `cloud_${row.id}`, cloudId: row.id };
 }
 
 async function fetchCloudTrips() {

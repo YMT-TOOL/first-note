@@ -79,6 +79,16 @@ function load() {
     activeTripId = trips[0].id;
     saveTrips();
   } else {
+    // 復元や再同期で同じ端末IDを持つ旅が複数できても、一覧から個別に選べるようにする。
+    const usedIds = new Set();
+    trips.forEach((trip, index) => {
+      const baseId = trip.cloudId ? `cloud_${trip.cloudId}` : (trip.id || `trip_${Date.now()}_${index}`);
+      let uniqueId = baseId;
+      let suffix = 2;
+      while (usedIds.has(uniqueId)) uniqueId = `${baseId}_${suffix++}`;
+      trip.id = uniqueId;
+      usedIds.add(uniqueId);
+    });
     activeTripId = localStorage.getItem(ACTIVE_TRIP_KEY) || trips[0].id;
     if (!trips.some(t => t.id === activeTripId)) activeTripId = trips[0].id;
   }
