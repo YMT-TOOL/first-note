@@ -495,6 +495,8 @@ function renderTripList() {
     return aa.localeCompare(bb);
   });
   sorted.forEach(t => {
+    const item = document.createElement("div");
+    item.className = "tripListItem";
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "tripSwitch" + (t === activeTripRef ? " active" : "");
@@ -509,8 +511,58 @@ function renderTripList() {
       if (typeof setCloudImageSource === "function") setCloudImageSource(image, t.tripPhoto);
       else image.src = t.tripPhoto;
     }
-    list.appendChild(btn);
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "tripDelete";
+    deleteBtn.setAttribute("aria-label", `${t.tripName || "新しい旅"}を削除`);
+    deleteBtn.title = "このノートを削除";
+    deleteBtn.textContent = "🗑";
+    deleteBtn.addEventListener("click", () => deleteTrip(t, deleteBtn));
+    item.append(btn, deleteBtn);
+    list.appendChild(item);
   });
+}
+
+async function deleteTrip(targetTrip, deleteButton) {
+  if (!targetTrip || !trips.includes(targetTrip)) return;
+  const name = targetTrip.tripName || "新しい旅";
+  if (!confirm(`「${name}」を削除しますか？\n\n端末とクラウドの両方から削除されます。この操作は元に戻せません。`)) return;
+
+  const originalText = deleteButton?.textContent || "🗑";
+  if (deleteButton) {
+    deleteButton.disabled = true;
+    deleteButton.textContent = "…";
+  }
+  try {
+    if (targetTrip.cloudId) {
+      if (typeof deleteCloudTrip !== "function") throw new Error("クラウド削除の準備ができていません");
+      await deleteCloudTrip(targetTrip);
+    }
+
+    const deletedIndex = trips.indexOf(targetTrip);
+    const deletingActive = targetTrip === activeTripRef;
+    trips.splice(deletedIndex, 1);
+    if (!trips.length) trips.push(blankTrip());
+
+    if (deletingActive) {
+      const nextIndex = Math.min(Math.max(deletedIndex, 0), trips.length - 1);
+      activeTripRef = trips[nextIndex];
+      activeTripId = activeTripRef.id;
+      saveTrips();
+      loadActiveTrip(activeTripRef);
+      refreshFromState();
+    } else {
+      saveTrips();
+      renderTripList();
+    }
+  } catch (error) {
+    console.error(error);
+    alert(`「${name}」を削除できませんでした。\n\n${error?.message || String(error)}`);
+    if (deleteButton) {
+      deleteButton.disabled = false;
+      deleteButton.textContent = originalText;
+    }
+  }
 }
 
 function openTripDrawer() {

@@ -146,6 +146,26 @@ async function fetchCloudTrips() {
   return data || [];
 }
 
+async function deleteCloudTrip(trip) {
+  if (!cloudSession?.user) throw new Error("先にログインしてください");
+  if (!trip?.cloudId) return;
+
+  // 旅行本体を消すと写真の削除権限を確認できなくなるため、写真を先に削除する。
+  const { data: files, error: listError } = await cloudClient.storage.from(CLOUD_BUCKET).list(trip.cloudId, { limit: 1000 });
+  if (listError) throw listError;
+  if (files?.length) {
+    const paths = files.filter(file => file.name && file.name !== ".emptyFolderPlaceholder").map(file => `${trip.cloudId}/${file.name}`);
+    if (paths.length) {
+      const { error: storageError } = await cloudClient.storage.from(CLOUD_BUCKET).remove(paths);
+      if (storageError) throw storageError;
+    }
+  }
+
+  const { data, error } = await cloudClient.from("trips").delete().eq("id", trip.cloudId).select("id");
+  if (error) throw error;
+  if (!data?.length) throw new Error("削除権限を確認できませんでした");
+}
+
 function hasMeaningfulLocalData() {
   return trips.some((trip) => trip.tripName || trip.destination || trip.startDate || trip.tripPhoto || trip.concept || trip.schedule?.length || trip.checklist?.length || trip.memos?.length || trip.memories?.length);
 }
