@@ -9,7 +9,6 @@ let cloudSession = null;
 let cloudSaveTimer = null;
 let cloudBusy = false;
 let cloudQueued = false;
-let lastCloudPullAt = 0;
 const signedPhotoCache = new Map();
 
 function setSyncStatus(kind, text) {
@@ -38,7 +37,7 @@ function updateAuthPanel() {
   document.getElementById("authSignedOut").hidden = signedIn;
   document.getElementById("authSignedIn").hidden = !signedIn;
   document.getElementById("accountEmail").textContent = signedIn ? cloudSession.user.email : "";
-  setSyncStatus(signedIn ? "online" : "", signedIn ? "同期済み" : "ログイン");
+  setSyncStatus(signedIn ? "online" : "", signedIn ? "接続済み" : "ログイン");
 }
 
 function dataUrlToBlob(dataUrl) {
@@ -160,6 +159,14 @@ function applyCloudRows(rows) {
   refreshFromState();
 }
 
+function saveLocalSnapshot(label = "auto") {
+  try {
+    localStorage.setItem(`${LOCAL_BACKUP_PREFIX}${Date.now()}:${label}`, JSON.stringify(trips));
+  } catch (error) {
+    console.warn("端末バックアップを作成できませんでした", error);
+  }
+}
+
 async function firstCloudLink() {
   const userId = cloudSession.user.id;
   const linkedKey = CLOUD_LINK_PREFIX + userId;
@@ -218,52 +225,89 @@ function scheduleCloudSave() {
   cloudSaveTimer = setTimeout(runCloudSave, 800);
 }
 
-async function pullCloudNow(pushLocalFirst = true) {
+async function uploadLocalNow() {
   if (!cloudSession?.user) return;
-  const button = document.getElementById("syncNowBtn");
+  const button = document.getElementById("uploadLocalBtn");
   if (button) {
     button.disabled = true;
-    button.textContent = "同期中…";
+    button.textContent = "クラウドへ保存中…";
   }
-  if (cloudSaveTimer) {
-    clearTimeout(cloudSaveTimer);
-    cloudSaveTimer = null;
-    await runCloudSave();
-  }
-  if (cloudBusy) {
-    if (button) {
-      button.disabled = false;
-      button.textContent = "今すぐ同期";
-    }
-    return;
-  }
-  setSyncStatus("syncing", "読込中…");
+  setSyncStatus("syncing", "保存中…");
   try {
-    // 手動同期は、まずこの端末の全旅行を確実にクラウドへ送る。
-    if (pushLocalFirst === true) await syncAllLocalTrips();
-    const rows = await fetchCloudTrips();
-    applyCloudRows(rows);
-    lastCloudPullAt = Date.now();
-    setSyncStatus("online", "同期済み");
-    if (button) button.textContent = "同期完了 ✓";
+    await syncAllLocalTrips();
+    setSyncStatus("online", "保存済み");
+    if (button) button.textContent = "保存完了 ✓";
   } catch (error) {
     console.error(error);
     setSyncStatus("error", "同期エラー");
-    if (button) button.textContent = "同期失敗・再試行";
-    alert("同期に失敗しました。\n\n" + (error?.message || String(error)));
+    if (button) button.textContent = "保存失敗・再試行";
+    alert("クラウド保存に失敗しました。\n\n" + (error?.message || String(error)));
   } finally {
     if (button) {
       button.disabled = false;
       setTimeout(() => {
-        if (button.textContent === "同期完了 ✓") button.textContent = "今すぐ同期";
+        if (button.textContent === "保存完了 ✓") button.textContent = "この端末をクラウドへ保存 ↑";
       }, 1800);
     }
   }
 }
 
-function autoPullCloud() {
-  if (!cloudSession?.user || document.hidden || Date.now() - lastCloudPullAt < 5000) return;
-  pullCloudNow(false);
+async function downloadCloudNow() {
+  if (!cloudSession?.user) return;
+  const button = document.getElementById("downloadCloudBtn");
+  if (!confirm("クラウドの内容をこの端末へ反映しますか？\n現在の端末データは復元できるようにバックアップします。")) return;
+  saveLocalSnapshot("before-download");
+  button.disabled = true;
+  button.textContent = "クラウドから読込中…";
+  setSyncStatus("syncing", "読込中…");
+  try {
+    const rows = await fetchCloudTrips();
+    if (!rows.length) throw new Error("クラウドに旅行がまだ保存されていません");
+    applyCloudRows(rows);
+    setSyncStatus("online", "反映済み");
+    button.textContent = "反映完了 ✓";
+  } catch (error) {
+    console.error(error);
+    setSyncStatus("error", "同期エラー");
+    button.textContent = "反映失敗・再試行";
+    alert("クラウド読込に失敗しました。\n\n" + (error?.message || String(error)));
+  } finally {
+    button.disabled = false;
+    setTimeout(() => {
+      if (button.textContent === "反映完了 ✓") button.textContent = "クラウドをこの端末へ反映 ↓";
+    }, 1800);
+  }
+}
+
+function restoreLocalBackup() {
+  const backupKeys = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(LOCAL_BACKUP_PREFIX)) backupKeys.push(key);
+  }
+  backupKeys.sort().reverse();
+  let restored = null;
+  if (backupKeys.length) {
+    try { restored = JSON.parse(localStorage.getItem(backupKeys[0])); } catch { restored = null; }
+  }
+  if (!Array.isArray(restored) || !restored.length) {
+    const legacyRaw = localStorage.getItem("firstNoteV041") || localStorage.getItem("firstNoteV04") || localStorage.getItem("tripPlannerV03");
+    if (legacyRaw) restored = [loadLegacySingleTrip()];
+  }
+  if (!Array.isArray(restored) || !restored.length) {
+    alert("復元できる端末バックアップが見つかりませんでした。");
+    return;
+  }
+  if (!confirm("同期前の端末データを復元しますか？\n現在表示中の内容も先にバックアップします。")) return;
+  saveLocalSnapshot("before-restore");
+  restored.forEach((trip) => { delete trip.cloudId; });
+  trips = restored;
+  activeTripId = trips[0].id;
+  saveTrips();
+  loadActiveTrip();
+  refreshFromState();
+  setSyncStatus("online", "端末復元済み");
+  alert("端末データを復元しました。内容を確認してから「この端末をクラウドへ保存」を押してください。");
 }
 
 async function signIn() {
@@ -294,24 +338,15 @@ async function initCloudSync() {
   document.getElementById("authBackdrop").addEventListener("click", closeAuthPanel);
   document.getElementById("signInBtn").addEventListener("click", signIn);
   document.getElementById("signUpBtn").addEventListener("click", signUp);
-  document.getElementById("syncNowBtn").addEventListener("click", () => pullCloudNow(true));
+  document.getElementById("uploadLocalBtn").addEventListener("click", uploadLocalNow);
+  document.getElementById("downloadCloudBtn").addEventListener("click", downloadCloudNow);
+  document.getElementById("restoreBackupBtn").addEventListener("click", restoreLocalBackup);
   document.getElementById("signOutBtn").addEventListener("click", () => cloudClient.auth.signOut());
-  document.addEventListener("visibilitychange", autoPullCloud);
-  window.addEventListener("focus", autoPullCloud);
 
   const { data } = await cloudClient.auth.getSession();
   cloudSession = data.session;
   updateAuthPanel();
-  if (cloudSession) {
-    try {
-      setSyncStatus("syncing", "接続中…");
-      await firstCloudLink();
-      setSyncStatus("online", "同期済み");
-    } catch (error) {
-      console.error(error);
-      setSyncStatus("error", "同期エラー");
-    }
-  }
+  if (cloudSession) setSyncStatus("online", "接続済み");
 
   cloudClient.auth.onAuthStateChange((event, session) => {
     const wasSignedIn = Boolean(cloudSession);
@@ -319,17 +354,7 @@ async function initCloudSync() {
     updateAuthPanel();
     if (session && !wasSignedIn && event === "SIGNED_IN") {
       closeAuthPanel();
-      setTimeout(async () => {
-        try {
-          setSyncStatus("syncing", "接続中…");
-          await firstCloudLink();
-          setSyncStatus("online", "同期済み");
-        } catch (error) {
-          console.error(error);
-          setSyncStatus("error", "同期エラー");
-        alert("クラウド同期の開始に失敗しました。\n\n" + (error?.message || String(error)) + "\n\n右上の同期表示を押して再度お試しください。");
-        }
-      }, 0);
+      setSyncStatus("online", "接続済み");
     }
   });
 }
