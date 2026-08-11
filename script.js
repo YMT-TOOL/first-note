@@ -118,6 +118,7 @@ function saveTrips() {
   } catch (error) {
     // 端末容量超過などが起きても、旅の切り替え操作まで停止させない。
     console.warn("端末への保存に失敗しました", error);
+    if (typeof setSyncStatus === "function") setSyncStatus("error", "端末保存エラー");
     return false;
   }
 }
@@ -131,7 +132,8 @@ function save() {
   activeTripRef = snapshot;
   window.firstNoteLastEditAt = Date.now();
   saveTrips();
-  renderTripList();
+  // 閉じている旅一覧を入力のたびに作り直さず、端末負荷を抑える。
+  if ($("tripDrawer")?.classList.contains("open")) renderTripList();
   if (typeof scheduleCloudSave === "function") scheduleCloudSave();
 }
 function bindBasics() {
@@ -528,6 +530,8 @@ async function deleteTrip(targetTrip, deleteButton) {
   if (!targetTrip || !trips.includes(targetTrip)) return;
   const name = targetTrip.tripName || "新しい旅";
   if (!confirm(`「${name}」を削除しますか？\n\n端末とクラウドの両方から削除されます。この操作は元に戻せません。`)) return;
+
+  if (typeof saveLocalSnapshot === "function") saveLocalSnapshot("before-delete", true);
 
   const originalText = deleteButton?.textContent || "🗑";
   if (deleteButton) {

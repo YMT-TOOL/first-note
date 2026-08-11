@@ -3,6 +3,7 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_oH3IwX8ppGJKwrr0oYJzTw_VWVnWSNp
 const CLOUD_BUCKET = "trip-photos";
 const CLOUD_LINK_PREFIX = "firstNoteCloudLinkedV06:";
 const LOCAL_BACKUP_PREFIX = "firstNoteBeforeCloudV06:";
+const SAFETY_BACKUP_KEY = "firstNoteSafetyBackupV071";
 
 let cloudClient = null;
 let cloudSession = null;
@@ -80,10 +81,11 @@ async function uploadPendingPhotos(trip) {
 async function resolveCloudPhoto(value) {
   if (!isStoragePhoto(value) || !cloudClient || !cloudSession) return value || "";
   const path = value.slice("storage:".length);
-  if (signedPhotoCache.has(path)) return signedPhotoCache.get(path);
+  const cached = signedPhotoCache.get(path);
+  if (cached && cached.expiresAt > Date.now()) return cached.url;
   const { data, error } = await cloudClient.storage.from(CLOUD_BUCKET).createSignedUrl(path, 3600);
   if (error) throw error;
-  signedPhotoCache.set(path, data.signedUrl);
+  signedPhotoCache.set(path, { url:data.signedUrl, expiresAt:Date.now() + 55 * 60 * 1000 });
   return data.signedUrl;
 }
 
@@ -176,6 +178,7 @@ function hasMeaningfulLocalData() {
 
 function applyCloudRows(rows) {
   if (!rows.length) return;
+  saveLocalSnapshot("before-cloud-replace", true);
   const previousId = activeTripId;
   trips = rows.map(tripFromCloudRow);
   activeTripId = trips.some((trip) => trip.id === previousId) ? previousId : trips[0].id;
@@ -187,6 +190,12 @@ function applyCloudRows(rows) {
 function mergeCloudRows(rows) {
   const activeCloudId = activeTripRef?.cloudId || "";
   const activeLocalId = activeTripRef?.id || activeTripId;
+  const syncedLocalTrips = trips.filter(trip => trip.cloudId);
+  // 認証や通信の一時的な問題で0件になった場合、端末の全ノートを消さない。
+  if (!rows.length && syncedLocalTrips.length) {
+    console.warn("クラウドが0件のため、安全のため自動反映を中止しました");
+    return false;
+  }
   const rowIds = new Set(rows.map(row => row.id));
   const localByCloudId = new Map(trips.filter(trip => trip.cloudId).map(trip => [trip.cloudId, trip]));
   const merged = [];
@@ -212,6 +221,7 @@ function mergeCloudRows(rows) {
   if (!merged.length) merged.push(blankTrip());
   if (!changed && merged.length === trips.length && merged.every((trip, index) => trip === trips[index])) return false;
 
+  saveLocalSnapshot("before-auto-merge", true);
   trips = merged;
   activeTripRef = (activeCloudId ? trips.find(trip => trip.cloudId === activeCloudId) : null)
     || trips.find(trip => trip.id === activeLocalId)
@@ -254,9 +264,13 @@ function startAutoSync() {
   autoSyncTimer = setInterval(runAutoSyncCycle, 10000);
 }
 
-function saveLocalSnapshot(label = "auto") {
+function saveLocalSnapshot(label = "auto", safetyOnly = false) {
   try {
-    localStorage.setItem(`${LOCAL_BACKUP_PREFIX}${Date.now()}:${label}`, JSON.stringify(trips));
+    if (safetyOnly) {
+      localStorage.setItem(SAFETY_BACKUP_KEY, JSON.stringify({ savedAt:Date.now(), label, trips }));
+    } else {
+      localStorage.setItem(`${LOCAL_BACKUP_PREFIX}${Date.now()}:${label}`, JSON.stringify(trips));
+    }
   } catch (error) {
     console.warn("端末バックアップを作成できませんでした", error);
   }
@@ -384,8 +398,21 @@ function restoreLocalBackup() {
   }
   backupKeys.sort().reverse();
   let restored = null;
+  let restoredAt = 0;
   if (backupKeys.length) {
-    try { restored = JSON.parse(localStorage.getItem(backupKeys[0])); } catch { restored = null; }
+    try {
+      restored = JSON.parse(localStorage.getItem(backupKeys[0]));
+      restoredAt = Number(backupKeys[0].slice(LOCAL_BACKUP_PREFIX.length).split(":")[0]) || 0;
+    } catch { restored = null; }
+  }
+  try {
+    const safety = JSON.parse(localStorage.getItem(SAFETY_BACKUP_KEY));
+    if (Array.isArray(safety?.trips) && safety.trips.length && Number(safety.savedAt) > restoredAt) {
+      restored = safety.trips;
+      restoredAt = Number(safety.savedAt);
+    }
+  } catch {
+    // 安全バックアップがない、または壊れている場合は従来バックアップを使う。
   }
   if (!Array.isArray(restored) || !restored.length) {
     const legacyRaw = localStorage.getItem("firstNoteV041") || localStorage.getItem("firstNoteV04") || localStorage.getItem("tripPlannerV03");
