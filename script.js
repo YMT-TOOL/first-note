@@ -106,6 +106,7 @@ function save() {
   if (idx >= 0) trips[idx] = snapshot; else trips.push(snapshot);
   saveTrips();
   renderTripList();
+  if (typeof scheduleCloudSave === "function") scheduleCloudSave();
 }
 function bindBasics() {
   $("tripName").value = state.tripName || "";
@@ -364,7 +365,8 @@ function renderTripPhoto() {
   const preview = $("tripPhotoPreview");
   const empty = document.querySelector(".tripPhotoEmpty");
   if (state.tripPhoto) {
-    preview.src = state.tripPhoto;
+    if (typeof setCloudImageSource === "function") setCloudImageSource(preview, state.tripPhoto);
+    else preview.src = state.tripPhoto;
     preview.style.display = "block";
     empty.style.display = "none";
   } else {
@@ -404,7 +406,12 @@ function renderMemories() {
   [...items].reverse().forEach((m) => {
     const card = document.createElement("article");
     card.className = "memory";
-    card.innerHTML = `${m.photo ? `<img src="${m.photo}" alt="旅の写真">` : ""}<div class="bubble"><h3>${escapeHtml(m.title)}</h3>${m.note ? `<p>${escapeHtml(m.note).replace(/\n/g,"<br>")}</p>` : ""}</div><time>${m.date}</time><button class="delete">DELETE</button>`;
+    card.innerHTML = `${m.photo ? `<img alt="旅の写真">` : ""}<div class="bubble"><h3>${escapeHtml(m.title)}</h3>${m.note ? `<p>${escapeHtml(m.note).replace(/\n/g,"<br>")}</p>` : ""}</div><time>${m.date}</time><button class="delete">DELETE</button>`;
+    if (m.photo) {
+      const image = card.querySelector("img");
+      if (typeof setCloudImageSource === "function") setCloudImageSource(image, m.photo);
+      else image.src = m.photo;
+    }
     card.querySelector("button").addEventListener("click",()=>{state.memories=state.memories.filter(x=>x.id!==m.id);save();renderMemories();});
     board.appendChild(card);
   });
@@ -431,7 +438,8 @@ $("resetBtn").addEventListener("click", () => {
   trips[idx] = fresh;
   loadActiveTrip();
   saveTrips();
-  location.reload();
+  refreshFromState();
+  if (typeof scheduleCloudSave === "function") scheduleCloudSave();
 });
 
 function formatTripRange(t) {
@@ -465,10 +473,15 @@ function renderTripList() {
     btn.type = "button";
     btn.className = "tripSwitch" + (t.id === activeTripId ? " active" : "");
     btn.innerHTML = `
-      <span class="tripThumb">${t.tripPhoto ? `<img src="${t.tripPhoto}" alt="">` : "✈"}</span>
+      <span class="tripThumb">${t.tripPhoto ? `<img alt="">` : "✈"}</span>
       <span class="tripMeta"><b>${escapeHtml(t.tripName || "新しい旅")}</b><small>${formatTripRange(t)}</small><small>${escapeHtml(t.destination || "行き先未設定")}</small></span>
       <span class="tripBadge">${tripStatus(t)}</span>`;
     btn.addEventListener("click", () => switchTrip(t.id));
+    if (t.tripPhoto) {
+      const image = btn.querySelector("img");
+      if (typeof setCloudImageSource === "function") setCloudImageSource(image, t.tripPhoto);
+      else image.src = t.tripPhoto;
+    }
     list.appendChild(btn);
   });
 }
@@ -490,7 +503,9 @@ function switchTrip(id) {
   save();
   activeTripId = id;
   localStorage.setItem(ACTIVE_TRIP_KEY,id);
-  location.reload();
+  loadActiveTrip();
+  refreshFromState();
+  closeTripDrawer();
 }
 function createTrip() {
   save();
@@ -498,7 +513,10 @@ function createTrip() {
   trips.push(t);
   activeTripId = t.id;
   saveTrips();
-  location.reload();
+  loadActiveTrip();
+  refreshFromState();
+  closeTripDrawer();
+  if (typeof scheduleCloudSave === "function") scheduleCloudSave();
 }
 
 $("tripMenuBtn").addEventListener("click", openTripDrawer);
@@ -520,12 +538,25 @@ function escapeHtml(value) {
   }[char]));
 }
 
+function refreshFromState() {
+  $("tripName").value = state.tripName || "";
+  $("destination").value = state.destination || "";
+  $("startDate").value = state.startDate || "";
+  $("endDate").value = state.endDate || "";
+  $("conceptText").value = state.concept || "";
+  normalizeDates();
+  renderTripPhoto();
+  renderDayTabs();
+  renderSchedule();
+  renderChecklist();
+  renderMemos();
+  renderMemories();
+  renderCountdown();
+  renderTripList();
+}
+
 load();
 normalizeDates();
 bindBasics();
-renderDayTabs();
-renderSchedule();
-renderChecklist();
-renderMemos();
-renderMemories();
-renderCountdown();
+refreshFromState();
+if (typeof initCloudSync === "function") initCloudSync();
