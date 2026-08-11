@@ -1,4 +1,9 @@
-# First Note v0.6.8
+# First Note v0.6.9
+
+## v0.6.9 キャッシュ更新修正
+
+- CSS・JavaScriptの読込URLにバージョン番号を追加
+- GitHub Pages更新後も古い削除機能なしのファイルが残らないよう改善
 
 ## v0.6.8 旅ノート削除
 
