@@ -21,6 +21,7 @@ const state = {
 };
 let trips = [];
 let activeTripId = "";
+let activeTripRef = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -95,27 +96,39 @@ function load() {
   loadActiveTrip();
 }
 
-function loadActiveTrip() {
-  const trip = trips.find(t => t.id === activeTripId) || trips[0];
+function loadActiveTrip(preferredTrip = null) {
+  const trip = (preferredTrip && trips.includes(preferredTrip) ? preferredTrip : null)
+    || (activeTripRef && activeTripRef.id === activeTripId && trips.includes(activeTripRef) ? activeTripRef : null)
+    || trips.find(t => t.id === activeTripId)
+    || trips[0];
+  activeTripRef = trip;
   activeTripId = trip.id;
   Object.keys(state).forEach(k => {
     const v = trip[k];
     state[k] = Array.isArray(v) ? [...v] : (v ?? (Array.isArray(state[k]) ? [] : ""));
   });
-  localStorage.setItem(ACTIVE_TRIP_KEY, activeTripId);
+  try { localStorage.setItem(ACTIVE_TRIP_KEY, activeTripId); } catch (error) { console.warn(error); }
 }
 
 function saveTrips() {
-  localStorage.setItem(TRIPS_KEY, JSON.stringify(trips));
-  localStorage.setItem(ACTIVE_TRIP_KEY, activeTripId);
+  try {
+    localStorage.setItem(TRIPS_KEY, JSON.stringify(trips));
+    localStorage.setItem(ACTIVE_TRIP_KEY, activeTripId);
+    return true;
+  } catch (error) {
+    // 端末容量超過などが起きても、旅の切り替え操作まで停止させない。
+    console.warn("端末への保存に失敗しました", error);
+    return false;
+  }
 }
 
 function save() {
-  const idx = trips.findIndex(t => t.id === activeTripId);
+  const idx = activeTripRef ? trips.indexOf(activeTripRef) : trips.findIndex(t => t.id === activeTripId);
   // 画面の入力内容だけを更新し、cloudIdなど旅行固有の管理情報は消さない。
   const current = idx >= 0 ? trips[idx] : {};
   const snapshot = {...current, id:activeTripId, ...JSON.parse(JSON.stringify(state))};
   if (idx >= 0) trips[idx] = snapshot; else trips.push(snapshot);
+  activeTripRef = snapshot;
   saveTrips();
   renderTripList();
   if (typeof scheduleCloudSave === "function") scheduleCloudSave();
@@ -448,7 +461,8 @@ $("resetBtn").addEventListener("click", () => {
   fresh.id = activeTripId;
   const idx = trips.findIndex(t => t.id === activeTripId);
   trips[idx] = fresh;
-  loadActiveTrip();
+  activeTripRef = fresh;
+  loadActiveTrip(fresh);
   saveTrips();
   refreshFromState();
   if (typeof scheduleCloudSave === "function") scheduleCloudSave();
@@ -483,13 +497,13 @@ function renderTripList() {
   sorted.forEach(t => {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "tripSwitch" + (t.id === activeTripId ? " active" : "");
+    btn.className = "tripSwitch" + (t === activeTripRef ? " active" : "");
     btn.innerHTML = `
       <span class="tripThumb">${t.tripPhoto ? `<img alt="">` : "✈"}</span>
       <span class="tripMeta"><b>${escapeHtml(t.tripName || "新しい旅")}</b><small>${formatTripRange(t)}</small><small>${escapeHtml(t.destination || "行き先未設定")}</small></span>
       <span class="tripBadge">${tripStatus(t)}</span>`;
-    // 端末IDが重複していた古いデータでも、クラウドIDを優先して確実に選ぶ。
-    btn.addEventListener("click", () => switchTrip(t.id, t.cloudId || ""));
+    // ID検索を挟まず、押した旅そのものを切り替え先として渡す。
+    btn.addEventListener("click", () => switchTrip(t));
     if (t.tripPhoto) {
       const image = btn.querySelector("img");
       if (typeof setCloudImageSource === "function") setCloudImageSource(image, t.tripPhoto);
@@ -512,18 +526,21 @@ function closeTripDrawer() {
   $("tripDrawer").setAttribute("aria-hidden","true");
   document.body.classList.remove("drawer-open");
 }
-function switchTrip(id, cloudId = "") {
-  // save() は一覧を描き直すため、先に選択先の識別情報を退避しておく。
-  const targetCloudId = cloudId;
-  const targetId = id;
+function switchTrip(targetTrip) {
+  if (!targetTrip) return;
+  // save() が一覧を描き直しても、対象オブジェクトは保持される。
+  const targetCloudId = targetTrip.cloudId || "";
+  const targetId = targetTrip.id;
   save();
-  const target = targetCloudId
+  // 保存中に現在の旅だけが新オブジェクトへ置き換わるため、対象を再確認する。
+  const target = trips.includes(targetTrip) ? targetTrip : (targetCloudId
     ? trips.find(t => t.cloudId === targetCloudId)
-    : trips.find(t => t.id === targetId);
+    : trips.find(t => t.id === targetId));
   if (!target) return;
+  activeTripRef = target;
   activeTripId = target.id;
-  localStorage.setItem(ACTIVE_TRIP_KEY, activeTripId);
-  loadActiveTrip();
+  try { localStorage.setItem(ACTIVE_TRIP_KEY, activeTripId); } catch (error) { console.warn(error); }
+  loadActiveTrip(target);
   refreshFromState();
   closeTripDrawer();
 }
@@ -532,8 +549,9 @@ function createTrip() {
   const t = blankTrip();
   trips.push(t);
   activeTripId = t.id;
+  activeTripRef = t;
   saveTrips();
-  loadActiveTrip();
+  loadActiveTrip(t);
   refreshFromState();
   closeTripDrawer();
   if (typeof scheduleCloudSave === "function") scheduleCloudSave();
