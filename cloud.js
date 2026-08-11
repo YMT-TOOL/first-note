@@ -9,6 +9,7 @@ let cloudSession = null;
 let cloudSaveTimer = null;
 let cloudBusy = false;
 let cloudQueued = false;
+let lastCloudPullAt = 0;
 const signedPhotoCache = new Map();
 
 function setSyncStatus(kind, text) {
@@ -37,7 +38,7 @@ function updateAuthPanel() {
   document.getElementById("authSignedOut").hidden = signedIn;
   document.getElementById("authSignedIn").hidden = !signedIn;
   document.getElementById("accountEmail").textContent = signedIn ? cloudSession.user.email : "";
-  setSyncStatus(signedIn ? "online" : "", signedIn ? "同期済み" : "端末保存");
+  setSyncStatus(signedIn ? "online" : "", signedIn ? "同期済み" : "ログイン");
 }
 
 function dataUrlToBlob(dataUrl) {
@@ -106,6 +107,22 @@ function cloudPayload(trip) {
 async function syncOneTrip(trip) {
   if (!cloudSession?.user) return;
   if (!trip.cloudId) trip.cloudId = crypto.randomUUID();
+
+  // 写真のStorage権限は旅行本体の存在を確認するため、先に旅行を作る。
+  const initialPayload = cloudPayload(trip);
+  initialPayload.tripPhoto = isInlinePhoto(initialPayload.tripPhoto) ? "" : initialPayload.tripPhoto;
+  initialPayload.memories = (initialPayload.memories || []).map((memory) => ({
+    ...memory,
+    photo: isInlinePhoto(memory.photo) ? "" : memory.photo
+  }));
+  const { error: prepareError } = await cloudClient.from("trips").upsert({
+    id: trip.cloudId,
+    owner_id: cloudSession.user.id,
+    title: trip.tripName || "新しい旅",
+    trip_data: initialPayload
+  }, { onConflict: "id" });
+  if (prepareError) throw prepareError;
+
   await uploadPendingPhotos(trip);
   const { error } = await cloudClient.from("trips").upsert({
     id: trip.cloudId,
@@ -205,16 +222,48 @@ function scheduleCloudSave() {
 }
 
 async function pullCloudNow() {
-  if (!cloudSession?.user || cloudBusy) return;
+  if (!cloudSession?.user) return;
+  const button = document.getElementById("syncNowBtn");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "同期中…";
+  }
+  if (cloudSaveTimer) {
+    clearTimeout(cloudSaveTimer);
+    cloudSaveTimer = null;
+    await runCloudSave();
+  }
+  if (cloudBusy) {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "今すぐ同期";
+    }
+    return;
+  }
   setSyncStatus("syncing", "読込中…");
   try {
     const rows = await fetchCloudTrips();
     applyCloudRows(rows);
+    lastCloudPullAt = Date.now();
     setSyncStatus("online", "同期済み");
+    if (button) button.textContent = "同期完了 ✓";
   } catch (error) {
     console.error(error);
     setSyncStatus("error", "同期エラー");
+    if (button) button.textContent = "同期失敗・再試行";
+  } finally {
+    if (button) {
+      button.disabled = false;
+      setTimeout(() => {
+        if (button.textContent === "同期完了 ✓") button.textContent = "今すぐ同期";
+      }, 1800);
+    }
   }
+}
+
+function autoPullCloud() {
+  if (!cloudSession?.user || document.hidden || Date.now() - lastCloudPullAt < 5000) return;
+  pullCloudNow();
 }
 
 async function signIn() {
@@ -247,6 +296,8 @@ async function initCloudSync() {
   document.getElementById("signUpBtn").addEventListener("click", signUp);
   document.getElementById("syncNowBtn").addEventListener("click", pullCloudNow);
   document.getElementById("signOutBtn").addEventListener("click", () => cloudClient.auth.signOut());
+  document.addEventListener("visibilitychange", autoPullCloud);
+  window.addEventListener("focus", autoPullCloud);
 
   const { data } = await cloudClient.auth.getSession();
   cloudSession = data.session;
@@ -276,7 +327,7 @@ async function initCloudSync() {
         } catch (error) {
           console.error(error);
           setSyncStatus("error", "同期エラー");
-          alert("クラウド同期の開始に失敗しました。右上の同期表示を押して再度お試しください。");
+        alert("クラウド同期の開始に失敗しました。\n\n" + (error?.message || String(error)) + "\n\n右上の同期表示を押して再度お試しください。");
         }
       }, 0);
     }
