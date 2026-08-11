@@ -1,4 +1,6 @@
 const STORAGE_KEY = "firstNoteV041";
+const TRIPS_KEY = "firstNoteTripsV05";
+const ACTIVE_TRIP_KEY = "firstNoteActiveTripV05";
 const V04_KEY = "firstNoteV04";
 const V03_KEY = "tripPlannerV03";
 const V02_KEY = "disneyPlannerV02";
@@ -17,48 +19,94 @@ const state = {
   concept: "",
   tripPhoto: ""
 };
+let trips = [];
+let activeTripId = "";
 
 const $ = (id) => document.getElementById(id);
 
-function load() {
+function blankTrip() {
+  return {
+    id: "trip_" + Date.now() + "_" + Math.random().toString(36).slice(2,7),
+    tripName: "",
+    destination: "",
+    startDate: "",
+    endDate: "",
+    activeDay: "",
+    schedule: [],
+    checklist: [],
+    memos: [],
+    memories: [],
+    concept: "",
+    tripPhoto: ""
+  };
+}
+
+function loadLegacySingleTrip() {
   const current = localStorage.getItem(STORAGE_KEY);
   const v04 = localStorage.getItem(V04_KEY);
   const v03 = localStorage.getItem(V03_KEY);
   const v02 = localStorage.getItem(V02_KEY);
   const v01 = localStorage.getItem(V01_KEY);
-
-  if (current) {
-    Object.assign(state, JSON.parse(current));
-    return;
+  const raw = current || v04 || v03 || v02 || v01;
+  if (!raw) return blankTrip();
+  try {
+    const old = JSON.parse(raw);
+    const migrated = blankTrip();
+    migrated.tripName = old.tripName || "";
+    migrated.startDate = old.startDate || "";
+    migrated.endDate = old.endDate || old.startDate || "";
+    migrated.activeDay = old.activeDay || old.startDate || "";
+    migrated.schedule = (old.schedule || []).map(item => ({...item,date:item.date || old.startDate || ""}));
+    migrated.checklist = old.checklist || [];
+    migrated.destination = old.destination || "";
+    migrated.memories = old.memories || [];
+    migrated.concept = old.concept || "";
+    migrated.tripPhoto = old.tripPhoto || "";
+    migrated.memos = old.memos || [];
+    if (!migrated.memos.length && old.memo && String(old.memo).trim()) {
+      migrated.memos = [{id:Date.now(),text:String(old.memo).trim()}];
+    }
+    return migrated;
+  } catch {
+    return blankTrip();
   }
+}
 
-  const legacyRaw = v04 || v03 || v02 || v01;
-  if (!legacyRaw) return;
-
-  const old = JSON.parse(legacyRaw);
-  state.tripName = old.tripName || "";
-  state.startDate = old.startDate || "";
-  state.endDate = old.endDate || old.startDate || "";
-  state.activeDay = old.activeDay || old.startDate || "";
-  state.schedule = (old.schedule || []).map((item) => ({
-    ...item,
-    date: item.date || old.startDate || ""
-  }));
-  state.checklist = old.checklist || [];
-  state.destination = old.destination || "";
-  state.memories = old.memories || [];
-  state.concept = old.concept || "";
-  state.tripPhoto = old.tripPhoto || "";
-  if (old.memo && String(old.memo).trim()) {
-    state.memos = [{ id: Date.now(), text: String(old.memo).trim() }];
+function load() {
+  try { trips = JSON.parse(localStorage.getItem(TRIPS_KEY)) || []; } catch { trips = []; }
+  if (!trips.length) {
+    trips = [loadLegacySingleTrip()];
+    activeTripId = trips[0].id;
+    saveTrips();
+  } else {
+    activeTripId = localStorage.getItem(ACTIVE_TRIP_KEY) || trips[0].id;
+    if (!trips.some(t => t.id === activeTripId)) activeTripId = trips[0].id;
   }
-  save();
+  loadActiveTrip();
+}
+
+function loadActiveTrip() {
+  const trip = trips.find(t => t.id === activeTripId) || trips[0];
+  activeTripId = trip.id;
+  Object.keys(state).forEach(k => {
+    const v = trip[k];
+    state[k] = Array.isArray(v) ? [...v] : (v ?? (Array.isArray(state[k]) ? [] : ""));
+  });
+  localStorage.setItem(ACTIVE_TRIP_KEY, activeTripId);
+}
+
+function saveTrips() {
+  localStorage.setItem(TRIPS_KEY, JSON.stringify(trips));
+  localStorage.setItem(ACTIVE_TRIP_KEY, activeTripId);
 }
 
 function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  const idx = trips.findIndex(t => t.id === activeTripId);
+  const snapshot = {id:activeTripId, ...JSON.parse(JSON.stringify(state))};
+  if (idx >= 0) trips[idx] = snapshot; else trips.push(snapshot);
+  saveTrips();
+  renderTripList();
 }
-
 function bindBasics() {
   $("tripName").value = state.tripName || "";
   $("destination").value = state.destination || "";
@@ -102,6 +150,7 @@ function bindBasics() {
       renderDayTabs();
       renderSchedule();
       renderCountdown();
+renderTripList();
     });
   });
 }
@@ -145,7 +194,7 @@ function renderDayTabs() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = dateKey === state.activeDay ? "active" : "";
-    button.innerHTML = `<strong>DAY ${index + 1}</strong>${date.getMonth() + 1}/${date.getDate()}`;
+    button.innerHTML = `<strong>DAY ${index + 1}</strong><span>${date.getMonth() + 1}/${date.getDate()}</span>`;
     button.addEventListener("click", () => {
       state.activeDay = dateKey;
       save();
@@ -375,14 +424,88 @@ $("addMemoryBtn").addEventListener("click", () => {
 });
 
 $("resetBtn").addEventListener("click", () => {
-  if (!confirm("保存した旅行プランをすべて消しますか？")) return;
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(V04_KEY);
-  localStorage.removeItem(V03_KEY);
-  localStorage.removeItem(V02_KEY);
-  localStorage.removeItem(V01_KEY);
+  if (!confirm("今開いている旅行ノートの内容をリセットしますか？")) return;
+  const fresh = blankTrip();
+  fresh.id = activeTripId;
+  const idx = trips.findIndex(t => t.id === activeTripId);
+  trips[idx] = fresh;
+  loadActiveTrip();
+  saveTrips();
   location.reload();
 });
+
+function formatTripRange(t) {
+  if (!t.startDate) return "日程未設定";
+  const s = new Date(t.startDate + "T00:00:00");
+  const e = new Date((t.endDate || t.startDate) + "T00:00:00");
+  return `${s.getFullYear()}/${String(s.getMonth()+1).padStart(2,"0")}/${String(s.getDate()).padStart(2,"0")} - ${String(e.getMonth()+1).padStart(2,"0")}/${String(e.getDate()).padStart(2,"0")}`;
+}
+
+function tripStatus(t) {
+  if (!t.startDate) return "NEW";
+  const today = new Date(); today.setHours(0,0,0,0);
+  const start = new Date(t.startDate + "T00:00:00");
+  const end = new Date((t.endDate || t.startDate) + "T23:59:59");
+  if (today > end) return "終了";
+  const d = Math.ceil((start-today)/86400000);
+  if (d > 0) return `あと ${d}日`;
+  return "旅行中";
+}
+
+function renderTripList() {
+  const list = $("tripList");
+  if (!list) return;
+  list.innerHTML = "";
+  const sorted = [...trips].sort((a,b) => {
+    const aa = a.startDate || "9999-12-31", bb = b.startDate || "9999-12-31";
+    return aa.localeCompare(bb);
+  });
+  sorted.forEach(t => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "tripSwitch" + (t.id === activeTripId ? " active" : "");
+    btn.innerHTML = `
+      <span class="tripThumb">${t.tripPhoto ? `<img src="${t.tripPhoto}" alt="">` : "✈"}</span>
+      <span class="tripMeta"><b>${escapeHtml(t.tripName || "新しい旅")}</b><small>${formatTripRange(t)}</small><small>${escapeHtml(t.destination || "行き先未設定")}</small></span>
+      <span class="tripBadge">${tripStatus(t)}</span>`;
+    btn.addEventListener("click", () => switchTrip(t.id));
+    list.appendChild(btn);
+  });
+}
+
+function openTripDrawer() {
+  renderTripList();
+  $("tripDrawer").classList.add("open");
+  $("drawerBackdrop").classList.add("open");
+  $("tripDrawer").setAttribute("aria-hidden","false");
+  document.body.classList.add("drawer-open");
+}
+function closeTripDrawer() {
+  $("tripDrawer").classList.remove("open");
+  $("drawerBackdrop").classList.remove("open");
+  $("tripDrawer").setAttribute("aria-hidden","true");
+  document.body.classList.remove("drawer-open");
+}
+function switchTrip(id) {
+  save();
+  activeTripId = id;
+  localStorage.setItem(ACTIVE_TRIP_KEY,id);
+  location.reload();
+}
+function createTrip() {
+  save();
+  const t = blankTrip();
+  trips.push(t);
+  activeTripId = t.id;
+  saveTrips();
+  location.reload();
+}
+
+$("tripMenuBtn").addEventListener("click", openTripDrawer);
+$("closeTripMenu").addEventListener("click", closeTripDrawer);
+$("drawerBackdrop").addEventListener("click", closeTripDrawer);
+$("newTripBtn").addEventListener("click", createTrip);
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeTripDrawer(); });
 
 function toDateKey(date) {
   const y = date.getFullYear();
