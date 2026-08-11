@@ -104,6 +104,15 @@ function cloudPayload(trip) {
   return payload;
 }
 
+async function saveTripRecord(trip, payload) {
+  const { error } = await cloudClient.rpc("save_first_note_trip", {
+    p_id: trip.cloudId,
+    p_title: trip.tripName || "新しい旅",
+    p_trip_data: payload
+  });
+  if (error) throw error;
+}
+
 async function syncOneTrip(trip) {
   if (!cloudSession?.user) return;
   if (!trip.cloudId) trip.cloudId = crypto.randomUUID();
@@ -115,22 +124,10 @@ async function syncOneTrip(trip) {
     ...memory,
     photo: isInlinePhoto(memory.photo) ? "" : memory.photo
   }));
-  const { error: prepareError } = await cloudClient.from("trips").upsert({
-    id: trip.cloudId,
-    owner_id: cloudSession.user.id,
-    title: trip.tripName || "新しい旅",
-    trip_data: initialPayload
-  }, { onConflict: "id" });
-  if (prepareError) throw prepareError;
+  await saveTripRecord(trip, initialPayload);
 
   await uploadPendingPhotos(trip);
-  const { error } = await cloudClient.from("trips").upsert({
-    id: trip.cloudId,
-    owner_id: cloudSession.user.id,
-    title: trip.tripName || "新しい旅",
-    trip_data: cloudPayload(trip)
-  }, { onConflict: "id" });
-  if (error) throw error;
+  await saveTripRecord(trip, cloudPayload(trip));
 }
 
 async function syncAllLocalTrips() {
@@ -221,7 +218,7 @@ function scheduleCloudSave() {
   cloudSaveTimer = setTimeout(runCloudSave, 800);
 }
 
-async function pullCloudNow() {
+async function pullCloudNow(pushLocalFirst = true) {
   if (!cloudSession?.user) return;
   const button = document.getElementById("syncNowBtn");
   if (button) {
@@ -242,6 +239,8 @@ async function pullCloudNow() {
   }
   setSyncStatus("syncing", "読込中…");
   try {
+    // 手動同期は、まずこの端末の全旅行を確実にクラウドへ送る。
+    if (pushLocalFirst === true) await syncAllLocalTrips();
     const rows = await fetchCloudTrips();
     applyCloudRows(rows);
     lastCloudPullAt = Date.now();
@@ -251,6 +250,7 @@ async function pullCloudNow() {
     console.error(error);
     setSyncStatus("error", "同期エラー");
     if (button) button.textContent = "同期失敗・再試行";
+    alert("同期に失敗しました。\n\n" + (error?.message || String(error)));
   } finally {
     if (button) {
       button.disabled = false;
@@ -263,7 +263,7 @@ async function pullCloudNow() {
 
 function autoPullCloud() {
   if (!cloudSession?.user || document.hidden || Date.now() - lastCloudPullAt < 5000) return;
-  pullCloudNow();
+  pullCloudNow(false);
 }
 
 async function signIn() {
@@ -294,7 +294,7 @@ async function initCloudSync() {
   document.getElementById("authBackdrop").addEventListener("click", closeAuthPanel);
   document.getElementById("signInBtn").addEventListener("click", signIn);
   document.getElementById("signUpBtn").addEventListener("click", signUp);
-  document.getElementById("syncNowBtn").addEventListener("click", pullCloudNow);
+  document.getElementById("syncNowBtn").addEventListener("click", () => pullCloudNow(true));
   document.getElementById("signOutBtn").addEventListener("click", () => cloudClient.auth.signOut());
   document.addEventListener("visibilitychange", autoPullCloud);
   window.addEventListener("focus", autoPullCloud);
