@@ -112,7 +112,9 @@ function saveTrips() {
 
 function save() {
   const idx = trips.findIndex(t => t.id === activeTripId);
-  const snapshot = {id:activeTripId, ...JSON.parse(JSON.stringify(state))};
+  // 画面の入力内容だけを更新し、cloudIdなど旅行固有の管理情報は消さない。
+  const current = idx >= 0 ? trips[idx] : {};
+  const snapshot = {...current, id:activeTripId, ...JSON.parse(JSON.stringify(state))};
   if (idx >= 0) trips[idx] = snapshot; else trips.push(snapshot);
   saveTrips();
   renderTripList();
@@ -486,7 +488,8 @@ function renderTripList() {
       <span class="tripThumb">${t.tripPhoto ? `<img alt="">` : "✈"}</span>
       <span class="tripMeta"><b>${escapeHtml(t.tripName || "新しい旅")}</b><small>${formatTripRange(t)}</small><small>${escapeHtml(t.destination || "行き先未設定")}</small></span>
       <span class="tripBadge">${tripStatus(t)}</span>`;
-    btn.addEventListener("click", () => switchTrip(t.id));
+    // 端末IDが重複していた古いデータでも、クラウドIDを優先して確実に選ぶ。
+    btn.addEventListener("click", () => switchTrip(t.id, t.cloudId || ""));
     if (t.tripPhoto) {
       const image = btn.querySelector("img");
       if (typeof setCloudImageSource === "function") setCloudImageSource(image, t.tripPhoto);
@@ -509,10 +512,17 @@ function closeTripDrawer() {
   $("tripDrawer").setAttribute("aria-hidden","true");
   document.body.classList.remove("drawer-open");
 }
-function switchTrip(id) {
+function switchTrip(id, cloudId = "") {
+  // save() は一覧を描き直すため、先に選択先の識別情報を退避しておく。
+  const targetCloudId = cloudId;
+  const targetId = id;
   save();
-  activeTripId = id;
-  localStorage.setItem(ACTIVE_TRIP_KEY,id);
+  const target = targetCloudId
+    ? trips.find(t => t.cloudId === targetCloudId)
+    : trips.find(t => t.id === targetId);
+  if (!target) return;
+  activeTripId = target.id;
+  localStorage.setItem(ACTIVE_TRIP_KEY, activeTripId);
   loadActiveTrip();
   refreshFromState();
   closeTripDrawer();
