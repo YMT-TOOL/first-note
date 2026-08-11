@@ -126,9 +126,10 @@ function save() {
   const idx = activeTripRef ? trips.indexOf(activeTripRef) : trips.findIndex(t => t.id === activeTripId);
   // 画面の入力内容だけを更新し、cloudIdなど旅行固有の管理情報は消さない。
   const current = idx >= 0 ? trips[idx] : {};
-  const snapshot = {...current, id:activeTripId, ...JSON.parse(JSON.stringify(state))};
+  const snapshot = {...current, id:activeTripId, ...JSON.parse(JSON.stringify(state)), _localDirty:true};
   if (idx >= 0) trips[idx] = snapshot; else trips.push(snapshot);
   activeTripRef = snapshot;
+  window.firstNoteLastEditAt = Date.now();
   saveTrips();
   renderTripList();
   if (typeof scheduleCloudSave === "function") scheduleCloudSave();

@@ -9,6 +9,7 @@ let cloudSession = null;
 let cloudSaveTimer = null;
 let cloudBusy = false;
 let cloudQueued = false;
+let autoSyncTimer = null;
 const signedPhotoCache = new Map();
 
 function setSyncStatus(kind, text) {
@@ -100,6 +101,8 @@ async function setCloudImageSource(image, value) {
 function cloudPayload(trip) {
   const payload = JSON.parse(JSON.stringify(trip));
   delete payload.cloudId;
+  delete payload._localDirty;
+  delete payload._cloudUpdatedAt;
   return payload;
 }
 
@@ -127,6 +130,7 @@ async function syncOneTrip(trip) {
 
   await uploadPendingPhotos(trip);
   await saveTripRecord(trip, cloudPayload(trip));
+  trip._localDirty = false;
 }
 
 async function syncAllLocalTrips() {
@@ -137,7 +141,7 @@ async function syncAllLocalTrips() {
 function tripFromCloudRow(row) {
   const data = row.trip_data || {};
   // クラウドの行IDは必ず一意。復元元の端末IDが重複していても別の旅として扱う。
-  return { ...blankTrip(), ...data, id: `cloud_${row.id}`, cloudId: row.id };
+  return { ...blankTrip(), ...data, id: `cloud_${row.id}`, cloudId: row.id, _localDirty:false, _cloudUpdatedAt:row.updated_at || "" };
 }
 
 async function fetchCloudTrips() {
@@ -178,6 +182,76 @@ function applyCloudRows(rows) {
   saveTrips();
   loadActiveTrip();
   refreshFromState();
+}
+
+function mergeCloudRows(rows) {
+  const activeCloudId = activeTripRef?.cloudId || "";
+  const activeLocalId = activeTripRef?.id || activeTripId;
+  const rowIds = new Set(rows.map(row => row.id));
+  const localByCloudId = new Map(trips.filter(trip => trip.cloudId).map(trip => [trip.cloudId, trip]));
+  const merged = [];
+  let changed = false;
+
+  for (const row of rows) {
+    const local = localByCloudId.get(row.id);
+    if (local?._localDirty || (local && local._cloudUpdatedAt === (row.updated_at || ""))) {
+      merged.push(local);
+    } else {
+      merged.push(tripFromCloudRow(row));
+      changed = true;
+    }
+  }
+
+  // クラウドIDがない端末ノートと、未送信の編集は勝手に消さない。
+  for (const local of trips) {
+    if (!local.cloudId) merged.push(local);
+    else if (!rowIds.has(local.cloudId) && local._localDirty) merged.push(local);
+    else if (!rowIds.has(local.cloudId)) changed = true;
+  }
+
+  if (!merged.length) merged.push(blankTrip());
+  if (!changed && merged.length === trips.length && merged.every((trip, index) => trip === trips[index])) return false;
+
+  trips = merged;
+  activeTripRef = (activeCloudId ? trips.find(trip => trip.cloudId === activeCloudId) : null)
+    || trips.find(trip => trip.id === activeLocalId)
+    || trips[0];
+  activeTripId = activeTripRef.id;
+  saveTrips();
+  loadActiveTrip(activeTripRef);
+  refreshFromState();
+  return true;
+}
+
+async function runAutoSyncCycle() {
+  if (!cloudSession?.user || cloudBusy || document.hidden) return;
+  if (Date.now() - (window.firstNoteLastEditAt || 0) < 3000) return;
+  cloudBusy = true;
+  setSyncStatus("syncing", "自動同期中…");
+  try {
+    const dirtyTrips = trips.filter(trip => trip._localDirty);
+    for (const trip of dirtyTrips) await syncOneTrip(trip);
+    const rows = await fetchCloudTrips();
+    mergeCloudRows(rows);
+    saveTrips();
+    setSyncStatus("online", "自動同期済み");
+  } catch (error) {
+    console.error(error);
+    setSyncStatus("error", "自動同期エラー");
+  } finally {
+    cloudBusy = false;
+  }
+}
+
+function stopAutoSync() {
+  if (autoSyncTimer) clearInterval(autoSyncTimer);
+  autoSyncTimer = null;
+}
+
+function startAutoSync() {
+  stopAutoSync();
+  setTimeout(runAutoSyncCycle, 600);
+  autoSyncTimer = setInterval(runAutoSyncCycle, 10000);
 }
 
 function saveLocalSnapshot(label = "auto") {
@@ -224,7 +298,9 @@ async function runCloudSave() {
   cloudBusy = true;
   setSyncStatus("syncing", "保存中…");
   try {
-    const currentTrip = trips.find((trip) => trip.id === activeTripId);
+    const currentTrip = activeTripRef && trips.includes(activeTripRef)
+      ? activeTripRef
+      : trips.find((trip) => trip.id === activeTripId);
     if (currentTrip) await syncOneTrip(currentTrip);
     saveTrips();
     setSyncStatus("online", "同期済み");
@@ -367,15 +443,26 @@ async function initCloudSync() {
   const { data } = await cloudClient.auth.getSession();
   cloudSession = data.session;
   updateAuthPanel();
-  if (cloudSession) setSyncStatus("online", "接続済み");
+  if (cloudSession) {
+    setSyncStatus("online", "自動同期ON");
+    startAutoSync();
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && cloudSession?.user) runAutoSyncCycle();
+  });
+  window.addEventListener("online", () => {
+    if (cloudSession?.user) runAutoSyncCycle();
+  });
 
   cloudClient.auth.onAuthStateChange((event, session) => {
     const wasSignedIn = Boolean(cloudSession);
     cloudSession = session;
     updateAuthPanel();
+    if (session) startAutoSync(); else stopAutoSync();
     if (session && !wasSignedIn && event === "SIGNED_IN") {
       closeAuthPanel();
-      setSyncStatus("online", "接続済み");
+      setSyncStatus("online", "自動同期ON");
     }
   });
 }
